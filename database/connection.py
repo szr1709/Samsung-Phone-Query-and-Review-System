@@ -16,5 +16,7 @@ database_url = URL.create(
 
 engine = create_engine(
     database_url,
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    # Avoid appearing to hang indefinitely when PostgreSQL is unavailable.
+    connect_args={"connect_timeout": 5},
 )
