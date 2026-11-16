@@ -1,26 +1,22 @@
 
-import subprocess
-import sys
+from database.create_database import create_database
+from database.create_tables import create_tables
+from scraper.gsmarena_scraper import run_listing_scraper
+from scraper.gsmarena_specification_scraper import run_specification_scraper
 
 
-def main() -> None:
-    commands = (
-        ("database.create_database", "PostgreSQL database setup"),
-        ("database.create_tables", "PostgreSQL table setup"),
-        ("scraper.gsmarena_scraper", "Samsung phone listings"),
-        (
-            "scraper.gsmarena_specification_scraper",
-            "phone specifications and prices",
-        ),
-    )
+def main():
+    print("\n--- Step 1: Setting up PostgreSQL database ---")
+    create_database()
 
-    for module, label in commands:
-        print(f"\n=== Scraping {label} ===", flush=True)
+    print("\n--- Step 2: Creating database tables ---")
+    create_tables()
 
-        subprocess.run(
-            [sys.executable, "-m", module],
-            check=True,
-        )
+    print("\n--- Step 3: Scraping Samsung phone listings ---")
+    run_listing_scraper()
+
+    print("\n--- Step 4: Scraping phone specifications and prices ---")
+    run_specification_scraper()
 
     print("\nAll tasks completed successfully!")
 

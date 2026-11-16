@@ -1,42 +1,26 @@
-"""Create the configured PostgreSQL database if it does not already exist."""
-
-import os
-
-from dotenv import load_dotenv
-from sqlalchemy import URL, create_engine, text
+from sqlalchemy import create_engine, text
+from database.connection import database_url
 
 
-def main() -> None:
-    load_dotenv()
-    database_name = os.getenv("DB_NAME")
-    if not database_name:
-        raise RuntimeError("DB_NAME is missing from the environment/.env file.")
+def create_database():
+    database_name = database_url.database
 
-    admin_url = URL.create(
-        drivername="postgresql+psycopg",
-        username=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT", "5432")),
-        database="postgres",
-    )
-    engine = create_engine(admin_url, pool_pre_ping=True)
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
-            exists = connection.execute(
-                text("SELECT 1 FROM pg_database WHERE datname = :name"),
-                {"name": database_name},
-            ).scalar_one_or_none()
-            if exists:
-                print(f"Database '{database_name}' already exists.")
-                return
+    # Connect to the default 'postgres' database first
+    admin_url = database_url.set(database="postgres")
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
 
-            quoted_name = '"' + database_name.replace('"', '""') + '"'
-            connection.exec_driver_sql(f"CREATE DATABASE {quoted_name}")
+    with admin_engine.connect() as connection:
+        query = text("SELECT 1 FROM pg_database WHERE datname = :name")
+        result = connection.execute(query, {"name": database_name}).fetchone()
+
+        if result:
+            print(f"Database '{database_name}' already exists.")
+        else:
+            connection.execute(text(f'CREATE DATABASE "{database_name}"'))
             print(f"Created database '{database_name}'.")
-    finally:
-        engine.dispose()
+
+    admin_engine.dispose()
 
 
 if __name__ == "__main__":
-    main()
+    create_database()
