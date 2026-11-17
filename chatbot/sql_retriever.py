@@ -168,21 +168,45 @@ def get_phone_price(model_name):
 
 
 
+
 def search_specifications(keyword, model_name=None, limit=20):
     """
     Search specification names, values, and categories.
 
-    Optionally restrict results to one exact phone model.
+    RAM, storage, and screen size use targeted database fields.
+    Other specifications use the general search.
     """
 
-    keyword = keyword.strip()
+    keyword = keyword.strip().lower()
 
     if not keyword:
         return []
 
     limit = max(1, min(limit, 100))
 
-    sql = text("""
+    # Target the correct specification field for these terms.
+    if keyword in ("ram", "storage", "internal"):
+        field_condition = """
+            s.category ILIKE 'Memory'
+            AND s.specification_name ILIKE 'Internal'
+        """
+
+    elif keyword in ("screen size", "screen", "display size", "size"):
+        field_condition = """
+            s.category ILIKE 'Display'
+            AND s.specification_name ILIKE 'Size'
+        """
+
+    else:
+        field_condition = """
+            (
+                s.specification_name ILIKE :keyword
+                OR s.specification_value ILIKE :keyword
+                OR s.category ILIKE :keyword
+            )
+        """
+
+    sql = text(f"""
         SELECT
             p.model_name,
             s.category,
@@ -190,25 +214,14 @@ def search_specifications(keyword, model_name=None, limit=20):
             s.specification_value
         FROM phone_specifications s
         JOIN phones p ON p.id = s.phone_id
-        WHERE (
-            s.specification_name ILIKE :keyword
-            OR s.specification_value ILIKE :keyword
-            OR s.category ILIKE :keyword
-        )
-        AND p.model_name NOT ILIKE 'Galaxy Tab %'
-        AND p.model_name NOT ILIKE 'Galaxy Watch%'
-        AND (
-            CAST(:model_name AS VARCHAR) IS NULL
-            OR LOWER(p.model_name) = LOWER(:model_name)
-        )
-        ORDER BY
-            CASE
-                WHEN s.category ILIKE :keyword THEN 1
-                WHEN s.specification_name ILIKE :keyword THEN 2
-                WHEN s.specification_value ILIKE :keyword THEN 3
-                ELSE 4
-            END,
-            p.model_name
+        WHERE {field_condition}
+          AND p.model_name NOT ILIKE 'Galaxy Tab %'
+          AND p.model_name NOT ILIKE 'Galaxy Watch%'
+          AND (
+              CAST(:model_name AS VARCHAR) IS NULL
+              OR LOWER(p.model_name) = LOWER(:model_name)
+          )
+        ORDER BY p.model_name
         LIMIT :limit
     """)
 
@@ -217,15 +230,13 @@ def search_specifications(keyword, model_name=None, limit=20):
             sql,
             {
                 "keyword": f"%{keyword}%",
-                "model_name": (
-                    model_name.strip()
-                    if model_name else None
-                ),
+                "model_name": model_name.strip() if model_name else None,
                 "limit": limit
             }
         ).mappings().all()
 
     return [dict(row) for row in results]
+
 
 
 

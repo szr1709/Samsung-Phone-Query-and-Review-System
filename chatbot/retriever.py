@@ -19,7 +19,7 @@ SPECIFICATION_KEYWORDS = [
 ]
 
 PRICE_KEYWORDS = [
-    "price", "cost", "how much", "pricing"
+    "price", "cost", "pricing"
 ]
 
 COMPARISON_KEYWORDS = [
@@ -237,7 +237,22 @@ def retrieve_context(question, phone_names=None):
 
     
     # 2. Price questions
-    if any(word in question_lower for word in PRICE_KEYWORDS):
+    is_price_question = (
+        any(word in question_lower for word in PRICE_KEYWORDS)
+        or (
+            "how much" in question_lower
+            and any(
+                word in question_lower
+                for word in ["phone", "mobile", "samsung", "galaxy"]
+            )
+            and not any(
+                word in question_lower
+                for word in ["ram", "storage", "memory", "battery", "charging"]
+            )
+        )
+    )
+
+    if is_price_question:
 
         if not phone_name:
             return {
@@ -270,31 +285,44 @@ def retrieve_context(question, phone_names=None):
 
 
     # 3. Exact battery capacity search
-    capacity_match = re.search(
-        r"\b\d{3,5}\s*mAh\b",
-        question,
-        re.IGNORECASE
-    )
+        # 3. Battery life and endurance questions
+    battery_life_keywords = [
+        "battery life",
+        "battery endurance",
+        "endurance",
+        "active use score",
+        "longest lasting battery",
+        "best battery life"
+    ]
 
-    if capacity_match:
-        capacity = capacity_match.group(0)
-
+    if any(word in question_lower for word in battery_life_keywords):
         results = search_specifications(
-            capacity,
-            model_name=phone_name
+            "Active use score"
         )
+
+        # Also retrieve EU endurance measurements.
+        eu_results = search_specifications("endurance")
+
+        runtime_results = [
+            item for item in results + eu_results
+            if (
+                item["category"].lower() == "our tests"
+                or item["category"].lower() == "eu label"
+            )
+        ]
 
         return {
             "question": question,
-            "type": "specification_search",
-            "retrieved_data": results,
+            "type": "battery_life_search",
+            "retrieved_data": runtime_results,
             "message": (
-                f"Found specifications matching {capacity}."
-                if results
-                else f"No specifications found matching {capacity}."
+                "Measured battery runtime information retrieved."
+                if runtime_results
+                else "No measured battery runtime information available. "
+                     "Battery capacity alone cannot establish battery life."
             )
         }
-
+    
     # 4. General specification questions
     if any(word in question_lower for word in SPECIFICATION_KEYWORDS):
 

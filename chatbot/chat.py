@@ -243,7 +243,7 @@ def chat(question, on_token=None):
 
     semantic_context = format_semantic_context(semantic_data)
 
-        # Step 3: Build prompt
+    # Step 3: Build prompt
     prompt = build_prompt(
         question=question,
         sql_context=sql_context,
@@ -256,7 +256,7 @@ def chat(question, on_token=None):
     if any(word in question_lower for word in [
         "compare", "comparison", "difference", "vs", "versus"
     ]):
-        max_tokens = 1200
+        max_tokens = 1600
 
     elif any(word in question_lower for word in [
         "review", "detailed review", "pros and cons"

@@ -9,6 +9,10 @@ from database.models import Base, Phone
 
 LISTING_URL = "https://www.gsmarena.com/samsung-phones-9.php"
 MAX_PHONES = 15
+EXCLUDED_PREFIXES = (
+    "galaxy tab",
+    "galaxy watch"
+)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -38,6 +42,9 @@ def parse_phones(html):
             continue
 
         model_name = name_tag.get_text(" ", strip=True)
+
+        if model_name.lower().startswith(EXCLUDED_PREFIXES):
+            continue
         phone_url = urljoin(LISTING_URL, link.get("href"))
 
         image_tag = link.find("img")
@@ -60,15 +67,7 @@ def parse_phones(html):
     return phones
 
 
-def keep_only_15_phones(session):
-    all_phones = session.query(Phone).order_by(Phone.id).all()
 
-    if len(all_phones) > MAX_PHONES:
-        extra_phones = all_phones[MAX_PHONES:]
-        for phone in extra_phones:
-            session.delete(phone)
-        session.commit()
-        print(f"Removed {len(extra_phones)} extra phones. Kept {MAX_PHONES} phones.")
 
 
 def save_phones(phones):
@@ -93,7 +92,6 @@ def save_phones(phones):
             existing_phone.image_url = item["image_url"]
 
     session.commit()
-    keep_only_15_phones(session)
     session.close()
 
 
@@ -101,21 +99,19 @@ def run_listing_scraper():
     Base.metadata.create_all(bind=engine)
     session = Session(engine)
 
-    # First remove any extra phones if there are more than 15
-    keep_only_15_phones(session)
+    count = session.query(Phone).filter(
+        ~Phone.model_name.ilike("Galaxy Tab%"),
+        ~Phone.model_name.ilike("Galaxy Watch%")
+    ).count()
 
-    count = session.query(Phone).count()
     session.close()
 
-    if count == MAX_PHONES:
-        print(f"Database already has {count} phones. Skipping listing scrape.")
+    if count >= MAX_PHONES:
+        print(f"Database already has {count} smartphones. Skipping listing scrape.")
         return
 
     html = fetch_listing(LISTING_URL)
     phones = parse_phones(html)
     save_phones(phones)
-    print(f"Saved {len(phones)} Samsung phones to the database.")
 
-
-if __name__ == "__main__":
-    run_listing_scraper()
+    print(f"Processed {len(phones)} Samsung smartphones.")

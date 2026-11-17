@@ -37,6 +37,7 @@ def format_semantic_results(results, limit=5):
     return semantic_data
 
 
+
 def retrieve_hybrid_context(question, limit=5):
     """
     Retrieve information using both PostgreSQL
@@ -51,7 +52,7 @@ def retrieve_hybrid_context(question, limit=5):
 
     sql_data = sql_result.get("retrieved_data", [])
 
-    # Step 2: Decide whether semantic search is useful
+    # Step 2: Decide whether semantic search can supplement SQL
     semantic_types = [
         "specification_search",
         "phone_search"
@@ -61,30 +62,78 @@ def retrieve_hybrid_context(question, limit=5):
 
     if (
         sql_result["type"] in semantic_types
-        and not sql_data
-        and not phone_names
+        and len(sql_data) < limit
+        and len(phone_names) <= 1
     ):
+
+        # Restrict semantic results to the requested phone
+        where_filter = (
+            {"model_name": phone_names[0]}
+            if len(phone_names) == 1
+            else None
+        )
 
         chroma_results = search_documents(
             question,
-            limit=limit
-        )
-
-        semantic_data = format_semantic_results(
-            chroma_results,
             limit=limit,
+            where=where_filter
         )
 
-    # Step 3: Return combined retrieval results
+        candidates = format_semantic_results(
+            chroma_results,
+            limit=limit * 3
+        )
+
+        # Avoid adding records already retrieved from SQL
+        existing_keys = {
+            (
+                item.get("model_name", "").lower(),
+                item.get("category", "").lower(),
+                item.get("specification_name", "").lower()
+            )
+            for item in sql_data
+        }
+
+        # When SQL has results, keep semantic results
+        # within the same specification category
+        sql_categories = {
+            item.get("category", "").lower()
+            for item in sql_data
+        }
+
+        for item in candidates:
+            metadata = item["metadata"]
+
+            model_name = metadata.get("model_name", "")
+            category = metadata.get("category", "")
+            specification_name = metadata.get(
+                "specification_name", ""
+            )
+
+            if sql_data and category.lower() not in sql_categories:
+                continue
+
+            key = (
+                model_name.lower(),
+                category.lower(),
+                specification_name.lower()
+            )
+
+            if key in existing_keys:
+                continue
+
+            semantic_data.append(item)
+            existing_keys.add(key)
+
+            if len(sql_data) + len(semantic_data) >= limit:
+                break
+
+    # Step 3: Return retrieval results
     return {
         "question": question,
         "type": sql_result["type"],
         "message": sql_result["message"],
-
         "sql_data": sql_data,
-
         "semantic_data": semantic_data,
-
-        # Preserve the original SQL result structure
         "retrieved_data": sql_data
     }

@@ -39,20 +39,27 @@ def generate_embedding(text):
     return response.embeddings[0]
 
 
-def search_documents(query, limit=5):
+def search_documents(query, limit=5, where=None):
     """
     Search ChromaDB using semantic similarity.
+    Optionally filter results using metadata.
     """
 
     document_count = collection.count()
+
     if document_count == 0:
         return []
 
     query_embedding = generate_embedding(query)
 
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=min(limit * 3, document_count)
-    )
+    search_options = {
+        "query_embeddings": [query_embedding],
+        "n_results": min(limit * 3, document_count)
+    }
+
+    if where:
+        search_options["where"] = where
+
+    results = collection.query(**search_options)
 
     return results

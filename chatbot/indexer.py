@@ -62,6 +62,10 @@ def index_phone_specifications():
         return
 
     total_indexed = 0
+    valid_ids = {
+        f"phone-{spec['phone_id']}-spec-{spec['specification_id']}"
+        for spec in specifications
+    }
 
     for start in range(0, len(specifications), BATCH_SIZE):
 
@@ -105,6 +109,20 @@ def index_phone_specifications():
         )
 
         total_indexed += len(batch)
+        
+
+            # Remove obsolete vectors that no longer exist in PostgreSQL.
+    stored_records = collection.get(include=[])
+
+    stale_ids = [
+        record_id
+        for record_id in stored_records["ids"]
+        if record_id not in valid_ids
+    ]
+
+    if stale_ids:
+        collection.delete(ids=stale_ids)
+        print(f"Removed {len(stale_ids)} obsolete vectors.")
 
         print(
             f"Indexed {total_indexed}/{len(specifications)} specifications"

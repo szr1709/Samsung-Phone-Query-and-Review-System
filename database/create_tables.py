@@ -10,6 +10,7 @@ def create_tables():
     except Exception as e:
         print("Error creating database tables:")
         print(e)
+        raise
 
 
 if __name__ == "__main__":
