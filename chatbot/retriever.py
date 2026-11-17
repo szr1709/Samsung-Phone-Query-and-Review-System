@@ -28,7 +28,11 @@ COMPARISON_KEYWORDS = [
 ]
 
 COMPARISON_FOCUS = {
-    "performance": ("platform", "chipset", "cpu", "gpu", "ram", "memory"),
+    "performance": ("platform", "chipset", "cpu", "gpu", "ram", "memory", "performance",),
+    "gaming": (
+    "platform", "chipset", "cpu", "gpu",
+    "memory", "display", "battery", "performance"
+    ),
     "camera": ("camera", "photo", "video"),
     "battery": ("battery", "charging"),
     "display": ("display", "screen"),
@@ -58,24 +62,34 @@ IGNORED_COMPARISON_SPECS = {
 }
 
 
+
 def _trim_comparison_details(phone, question):
-    """Keep comparison prompts focused and small enough for quick answers."""
+    """Keep comparison specifications relevant to the question."""
+
     specifications = phone.get("specifications", [])
     question_lower = question.lower()
-    focus = next(
-        (terms for key, terms in COMPARISON_FOCUS.items() if key in question_lower),
-        None,
-    )
 
-    if focus:
+    # Collect every requested comparison category.
+    focus_terms = set()
+
+    for key, terms in COMPARISON_FOCUS.items():
+        if key in question_lower:
+            focus_terms.update(terms)
+
+    if focus_terms:
         relevant = [
             spec for spec in specifications
             if any(
-                term in f"{spec['category']} {spec['specification_name']}".lower()
-                for term in focus
+                term in (
+                    f"{spec['category']} "
+                    f"{spec['specification_name']}"
+                ).lower()
+                for term in focus_terms
             )
         ]
+
         phone["specifications"] = relevant
+
     else:
         phone["specifications"] = [
             spec for spec in specifications
@@ -86,6 +100,7 @@ def _trim_comparison_details(phone, question):
         ]
 
     return phone
+
 
 
 def extract_phone_names(question):
@@ -188,9 +203,43 @@ def retrieve_context(question, phone_names=None):
     phone_name = phone_names[0] if phone_names else None
 
     # 1. Phone comparison questions
-    is_comparison = any(
-        keyword in question_lower
-        for keyword in COMPARISON_KEYWORDS
+    battery_life_keywords = [
+        "battery life",
+        "battery endurance",
+        "endurance",
+        "active use score",
+        "longest lasting battery",
+        "best battery life"
+    ]
+
+    is_battery_life_question = any(
+        word in question_lower
+        for word in battery_life_keywords
+    )
+
+    comparative_intent = any(
+        word in question_lower
+        for word in [
+            "better",
+            "faster",
+            "more powerful",
+            "performance",
+            "processor",
+            "chipset",
+            "which phone is better"
+        ]
+    )
+
+    is_comparison = (
+        any(
+            keyword in question_lower
+            for keyword in COMPARISON_KEYWORDS
+        )
+        or (
+            len(phone_names) >= 2
+            and comparative_intent
+            and not is_battery_life_question
+        )
     )
 
     if is_comparison:
@@ -285,7 +334,6 @@ def retrieve_context(question, phone_names=None):
 
 
     # 3. Exact battery capacity search
-        # 3. Battery life and endurance questions
     battery_life_keywords = [
         "battery life",
         "battery endurance",
@@ -295,21 +343,72 @@ def retrieve_context(question, phone_names=None):
         "best battery life"
     ]
 
-    if any(word in question_lower for word in battery_life_keywords):
-        results = search_specifications(
-            "Active use score"
-        )
+    if is_battery_life_question:
 
-        # Also retrieve EU endurance measurements.
-        eu_results = search_specifications("endurance")
+        # Explicit endurance questions use EU endurance measurements.
+        if "endurance" in question_lower or "eu label" in question_lower:
+            search_keyword = "endurance"
+        else:
+            # Battery-life questions use active-use scores.
+            search_keyword = "Active use score"
 
-        runtime_results = [
-            item for item in results + eu_results
-            if (
-                item["category"].lower() == "our tests"
-                or item["category"].lower() == "eu label"
-            )
-        ]
+        # If two phones are named, retrieve measurements for both.
+        if len(phone_names) >= 2:
+
+            runtime_results = []
+
+            for model in phone_names[:2]:
+                model_results = search_specifications(
+                    search_keyword,
+                    model_name=model
+                )
+
+                runtime_results.extend(model_results)
+
+        else:
+            runtime_results = search_specifications(search_keyword)
+
+        # Find the highest result only for general searches.
+        # Keep both phones' results when comparing named models.
+        if (
+            len(phone_names) < 2
+            and search_keyword == "Active use score"
+            and any(word in question_lower for word in [
+                "best",
+                "highest",
+                "longest",
+                "maximum",
+                "most"
+            ])
+        ):
+
+            scored_results = []
+
+            for item in runtime_results:
+                match = re.search(
+                    r"(\d+):(\d+)\s*h",
+                    item["specification_value"],
+                    re.IGNORECASE
+                )
+
+                if match:
+                    minutes = (
+                        int(match.group(1)) * 60
+                        + int(match.group(2))
+                    )
+
+                    scored_results.append((item, minutes))
+
+            if scored_results:
+                highest_score = max(
+                    score for _, score in scored_results
+                )
+
+                runtime_results = [
+                    item
+                    for item, score in scored_results
+                    if score == highest_score
+                ]
 
         return {
             "question": question,
@@ -318,8 +417,7 @@ def retrieve_context(question, phone_names=None):
             "message": (
                 "Measured battery runtime information retrieved."
                 if runtime_results
-                else "No measured battery runtime information available. "
-                     "Battery capacity alone cannot establish battery life."
+                else "No measured battery runtime information available."
             )
         }
     
@@ -327,31 +425,74 @@ def retrieve_context(question, phone_names=None):
     if any(word in question_lower for word in SPECIFICATION_KEYWORDS):
 
         keyword = next(
-            (
-                word for word in SPECIFICATION_KEYWORDS
-                if word in question_lower
-            ),
+            (word for word in SPECIFICATION_KEYWORDS if word in question_lower),
             None
         )
 
-        # Map user-friendly terms to database specification names.
         if keyword == "processor":
             keyword = "chipset"
 
-        # Search for a numerical specification first.
         value_match = re.search(
-            r"\b\d+(?:\.\d+)?\s*(?:gb|tb|w|hz|mp)\b",
+            r"\b\d+(?:\.\d+)?\s*(?:gb|tb|mah|w|hz|mp)\b",
             question,
             re.IGNORECASE
         )
 
-        if value_match:
-            keyword = value_match.group(0)
+        if keyword == "battery":
+            highest_first = any(
+                word in question_lower
+                for word in ("largest", "highest", "biggest", "maximum")
+            )
 
-        results = search_specifications(
-            keyword,
-            model_name=phone_name
-        )
+            results = search_specifications(
+                "battery",
+                model_name=phone_name,
+                value_filter=value_match.group(0) if value_match else None,
+                highest_first=highest_first,
+                limit=100
+            )
+                        # Keep only phones tied for the highest battery capacity.
+            if highest_first and results:
+                battery_values = []
+
+                for item in results:
+                    match = re.search(
+                        r"(\d+(?:\.\d+)?)\s*mAh",
+                        item["specification_value"],
+                        re.IGNORECASE
+                    )
+
+                    if match:
+                        battery_values.append(
+                            (item, float(match.group(1)))
+                        )
+
+                if battery_values:
+                    max_capacity = max(
+                        capacity for _, capacity in battery_values
+                    )
+
+                    results = [
+                        item
+                        for item, capacity in battery_values
+                        if capacity == max_capacity
+                    ]
+
+        elif value_match and keyword in ("ram", "storage", "memory"):
+            results = search_specifications(
+                keyword,
+                model_name=phone_name,
+                value_filter=value_match.group(0)
+            )
+
+        else:
+            if value_match:
+                keyword = value_match.group(0)
+
+            results = search_specifications(
+                keyword,
+                model_name=phone_name
+            )
 
         return {
             "question": question,

@@ -1,4 +1,4 @@
-
+import re
 from sqlalchemy import text
 
 from database.connection import engine
@@ -169,12 +169,18 @@ def get_phone_price(model_name):
 
 
 
-def search_specifications(keyword, model_name=None, limit=20):
+def search_specifications(
+    keyword,
+    model_name=None,
+    limit=20,
+    value_filter=None,
+    highest_first=False
+):
     """
-    Search specification names, values, and categories.
+    Search phone specifications.
 
-    RAM, storage, and screen size use targeted database fields.
-    Other specifications use the general search.
+    RAM/storage use exact configuration matching.
+    Battery searches return only battery capacity (mAh).
     """
 
     keyword = keyword.strip().lower()
@@ -184,11 +190,58 @@ def search_specifications(keyword, model_name=None, limit=20):
 
     limit = max(1, min(limit, 100))
 
-    # Target the correct specification field for these terms.
+    value_pattern = None
+
+    # Validate and normalize numeric filters.
+    if value_filter:
+        normalized_value = re.sub(
+            r"\s+", "", value_filter
+        ).upper()
+
+        if not re.fullmatch(
+            r"\d+(?:\.\d+)?(?:GB|TB|MAH)",
+            normalized_value
+        ):
+            return []
+
+        if keyword == "ram":
+            value_pattern = (
+                rf"(^|[[:space:]]){normalized_value}"
+                rf"[[:space:]]+RAM([,[:space:]]|$)"
+            )
+
+        elif keyword in ("storage", "internal"):
+            value_pattern = (
+                rf"(^|[,[:space:]]){normalized_value}"
+                rf"([0-9]|[,[:space:]]|$)"
+            )
+
+        elif keyword == "battery":
+            number = normalized_value[:-3]
+            value_pattern = (
+                rf"(^|[^0-9]){number}"
+                rf"[[:space:]]*mAh([^[:alnum:]]|$)"
+            )
+
+    # Select the correct specification fields.
     if keyword in ("ram", "storage", "internal"):
         field_condition = """
             s.category ILIKE 'Memory'
             AND s.specification_name ILIKE 'Internal'
+            AND (
+                CAST(:value_pattern AS VARCHAR) IS NULL
+                OR s.specification_value ~* :value_pattern
+            )
+        """
+
+    elif keyword == "battery":
+        field_condition = """
+            s.category ILIKE 'Battery'
+            AND s.specification_name ILIKE 'Type'
+            AND (
+                CAST(:value_pattern AS VARCHAR) IS NULL
+                OR s.specification_value ~* :value_pattern
+            )
         """
 
     elif keyword in ("screen size", "screen", "display size", "size"):
@@ -215,13 +268,26 @@ def search_specifications(keyword, model_name=None, limit=20):
         FROM phone_specifications s
         JOIN phones p ON p.id = s.phone_id
         WHERE {field_condition}
-          AND p.model_name NOT ILIKE 'Galaxy Tab %'
+          AND p.model_name NOT ILIKE 'Galaxy Tab%'
           AND p.model_name NOT ILIKE 'Galaxy Watch%'
           AND (
               CAST(:model_name AS VARCHAR) IS NULL
               OR LOWER(p.model_name) = LOWER(:model_name)
           )
-        ORDER BY p.model_name
+        ORDER BY
+            CASE
+                WHEN :highest_first AND :sort_battery
+                THEN CAST(
+                    NULLIF(
+                        substring(
+                            s.specification_value
+                            FROM '([0-9]+(?:\\.[0-9]+)?)\\s*mAh'
+                        ),
+                        ''
+                    ) AS NUMERIC
+                )
+            END DESC NULLS LAST,
+            p.model_name
         LIMIT :limit
     """)
 
@@ -230,12 +296,19 @@ def search_specifications(keyword, model_name=None, limit=20):
             sql,
             {
                 "keyword": f"%{keyword}%",
-                "model_name": model_name.strip() if model_name else None,
+                "sort_battery": keyword == "battery",
+                "value_pattern": value_pattern,
+                "model_name": (
+                    model_name.strip() if model_name else None
+                ),
+                "highest_first": highest_first,
                 "limit": limit
             }
         ).mappings().all()
 
     return [dict(row) for row in results]
+
+
 
 
 

@@ -10,9 +10,11 @@ EMBEDDING_MODEL = "nomic-embed-text"
 BATCH_SIZE = 50
 
 
+
 def fetch_phone_specifications():
     """
-    Fetch phone specifications from PostgreSQL.
+    Fetch Samsung smartphone specifications from PostgreSQL.
+    Excludes tablets and smartwatches.
     """
 
     sql = text("""
@@ -28,6 +30,8 @@ def fetch_phone_specifications():
         JOIN phones p ON p.id = s.phone_id
         WHERE s.specification_value IS NOT NULL
           AND TRIM(s.specification_value) != ''
+          AND p.model_name NOT ILIKE 'Galaxy Tab%'
+          AND p.model_name NOT ILIKE 'Galaxy Watch%'
         ORDER BY p.model_name, s.category
     """)
 
@@ -35,6 +39,7 @@ def fetch_phone_specifications():
         results = connection.execute(sql).mappings().all()
 
     return [dict(row) for row in results]
+
 
 
 def create_document(spec):
@@ -124,9 +129,9 @@ def index_phone_specifications():
         collection.delete(ids=stale_ids)
         print(f"Removed {len(stale_ids)} obsolete vectors.")
 
-        print(
-            f"Indexed {total_indexed}/{len(specifications)} specifications"
-        )
+    print(
+        f"Indexed {total_indexed}/{len(specifications)} specifications"
+    )
 
     print("\nIndexing completed successfully!")
     print("Total specifications indexed:", total_indexed)

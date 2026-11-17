@@ -25,7 +25,18 @@ COMPARISON INSTRUCTIONS:
 
 
 COMPARISON INSTRUCTIONS:
-1. Organize comparisons using these categories: Battery, Display, Performance, Memory & Storage, Camera, Design & Connectivity, Price, and Summary.
+1. Select comparison categories based on the user's question.
+   - For a performance question, focus on chipset, CPU, GPU, RAM, and benchmark results.
+   - For performance questions, always include the available
+     "Our Tests - Performance" results for every compared phone.
+   - Present matching benchmark versions side by side.
+   - If a benchmark version is missing for one phone, state that
+     it is unavailable. Never omit other available benchmark results.
+   - Do not replace benchmark evidence with OS version or update
+     support when discussing processing performance.
+   - Distinguish measured benchmark results from conclusions
+     inferred from CPU and GPU specifications.
+   - For a battery question, focus on battery capacity, charging, and available batterytests.
 2. Focus on important specifications and differences. Do not include lengthy CPU layouts or unnecessary technical details.
 3. Show exact values for both phones when relevant.
 4. Verify every numerical comparison before describing an advantage.
@@ -42,6 +53,8 @@ COMPARISON INSTRUCTIONS:
 11. Report prices in their original currencies. Never convert currencies.
 12. Do not guess missing specifications or declare an unsupported overall winner.
 13. End with a concise summary. Every summary statement must agree with the detailed comparison.
+14. Never assign a benchmark version unless it is explicitly present in the retrieved evidence.
+15. Do not claim actual gaming performance from GPU specifications or synthetic benchmarks alone. You may describe potential graphics performance, clearly identifying it as an inference.
 
 NUMERICAL VERIFICATION:
 Before writing:
@@ -52,13 +65,25 @@ Before writing:
 FORMATTING:
 - Use clear headings and concise bullet points.
 - Prioritize meaningful differences over repeated similarities.
-- Keep comparison answers around 200–300 words.
-- Keep ordinary answers around 80–120 words.
 - Maintain proper spacing and readable formatting.
 
 
 USER QUESTION:
 {question}
+
+PHONE REVIEW RULES:
+1. A detailed review must be based entirely on the retrieved information.
+2. Never use general knowledge or remembered phone specifications to fill missing details.
+3. Never invent or assume the processor, chipset, RAM, storage, camera sensors, display resolution, refresh rate, or memory card support.
+4. If a requested specification is not present in the evidence, write: "Not available in the retrieved database information."
+5. Do not invent benchmark scores, battery endurance scores, gaming performance, or real-world test results.
+6. Do not claim that a phone lasts a full day or has good camera quality unless supporting evidence is provided.
+7. Do not invent market prices or claim that a phone is affordable or competitively priced without price evidence.
+8. Separate verified specifications from general explanations.
+9. Do not repeat one measurement as evidence for a different feature. For example, an Active use score is not a camera performance score.
+10. If the retrieved evidence is insufficient for a complete review, provide a partial review and clearly identify the missing information.
+11. Accuracy is more important than review length or completeness.
+
 
 POSTGRESQL RETRIEVED INFORMATION:
 {sql_context}

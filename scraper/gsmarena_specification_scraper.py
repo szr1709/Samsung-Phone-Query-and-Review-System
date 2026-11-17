@@ -14,10 +14,13 @@ from scraper.gsmarena_scraper import HEADERS, MAX_PHONES
 
 CURRENCY_SYMBOLS = {
     "$": "USD",
+    "US$": "USD",
     "€": "EUR",
     "£": "GBP",
     "₹": "INR",
     "৳": "BDT",
+    "RS": "INR",
+    "RS.": "INR",
 }
 
 
@@ -64,24 +67,77 @@ def parse_specifications(html):
 
 def parse_prices(specifications):
     price_text = ""
+
     for spec in specifications:
         if spec["specification_name"].lower() == "price":
             price_text = spec["specification_value"]
             break
 
-    prices = []
-    pattern = r"([$€£₹৳]|USD|EUR|GBP|BDT|INR)\s*([\d,]+(?:\.\d{1,2})?)"
-    matches = re.findall(pattern, price_text, re.IGNORECASE)
+    if not price_text:
+        return []
 
-    for raw_currency, raw_amount in matches:
-        currency = CURRENCY_SYMBOLS.get(raw_currency, raw_currency.upper())
-        clean_amount = raw_amount.replace(",", "")
+    prices = []
+
+    currency_pattern = r"US\$|[$€£₹৳]|USD|EUR|GBP|BDT|INR|Rs\.?"
+
+    amount_pattern = r"\d[\d,]*(?:\.\d{1,2})?"
+
+    pattern = (
+        rf"(?:"
+        rf"({currency_pattern})\s*({amount_pattern})"
+        rf"(?:\s*[-–]\s*({amount_pattern}))?"
+        rf"|"
+        rf"({amount_pattern})"
+        rf"(?:\s*[-–]\s*({amount_pattern}))?"
+        rf"\s*({currency_pattern})"
+        rf")"
+    )
+
+    matches = re.finditer(pattern, price_text, re.IGNORECASE)
+
+    for match in matches:
+        (
+            currency_before,
+            amount_before,
+            range_before,
+            amount_after,
+            range_after,
+            currency_after,
+        ) = match.groups()
+
+        raw_currency = currency_before or currency_after
+
+        raw_amounts = [
+            amount_before or amount_after,
+            range_before or range_after,
+        ]
+
+        currency_key = raw_currency.upper()
+
+        currency = CURRENCY_SYMBOLS.get(
+            raw_currency,
+            CURRENCY_SYMBOLS.get(
+                currency_key,
+                currency_key
+            )
+        )
+
+        valid_amounts = [
+            Decimal(amount.replace(",", ""))
+            for amount in raw_amounts
+            if amount is not None
+        ]
+
+        if not valid_amounts:
+            continue
+
         prices.append({
             "currency": currency,
-            "price": Decimal(clean_amount),
+            "price": min(valid_amounts),
         })
 
     return prices
+
 
 
 def parse_release_date(specifications):
@@ -100,29 +156,31 @@ def parse_release_date(specifications):
     return None
 
 
+
 def save_phone_details(phone_id, source_url, specifications, prices):
     session = Session(engine)
 
-    phone = session.get(Phone, phone_id)
-    if phone is None:
-        session.close()
-        return
+    try:
+        phone = session.get(Phone, phone_id)
 
-    release_date = parse_release_date(specifications)
-    if release_date is not None:
-        phone.release_date = release_date
+        if not phone:
+            raise ValueError(f"Phone ID {phone_id} not found.")
 
-    # Save or update specifications
-    for spec in specifications:
-        existing_spec = session.query(PhoneSpecification).filter_by(
-            phone_id=phone_id,
-            category=spec["category"],
-            specification_name=spec["specification_name"],
-        ).first()
+        # Update the phone's source URL and release date.
+        phone.source_url = source_url
+        phone.release_date = parse_release_date(specifications)
 
-        if existing_spec:
-            existing_spec.specification_value = spec["specification_value"]
-        else:
+        # Remove old specifications and prices for this phone.
+        session.query(PhoneSpecification).filter_by(
+            phone_id=phone_id
+        ).delete()
+
+        session.query(PhonePrice).filter_by(
+            phone_id=phone_id
+        ).delete()
+
+        # Save specifications.
+        for spec in specifications:
             new_spec = PhoneSpecification(
                 phone_id=phone_id,
                 category=spec["category"],
@@ -131,58 +189,72 @@ def save_phone_details(phone_id, source_url, specifications, prices):
             )
             session.add(new_spec)
 
-    # Save or update prices
-    for item in prices:
-        existing_price = session.query(PhonePrice).filter_by(
-            phone_id=phone_id,
-            currency=item["currency"],
-            source=source_url,
-        ).first()
-
-        if existing_price:
-            existing_price.price = item["price"]
-        else:
+        # Save prices.
+        for price in prices:
             new_price = PhonePrice(
                 phone_id=phone_id,
-                price=item["price"],
-                currency=item["currency"],
+                price=price["price"],
+                currency=price["currency"],
                 source=source_url,
             )
             session.add(new_price)
 
-    session.commit()
-    session.close()
+        session.commit()
+
+        print(
+            f"Saved {len(specifications)} specifications "
+            f"and {len(prices)} prices for phone ID {phone_id}."
+        )
+
+    except Exception:
+        session.rollback()
+        raise
+
+    finally:
+        session.close()
 
 
 def run_specification_scraper():
     session = Session(engine)
     phones = (
         session.query(Phone)
-        .filter(Phone.source_url.isnot(None))
+        .filter(
+            Phone.source_url.isnot(None),
+            ~Phone.model_name.ilike("%Tab%"),
+            ~Phone.model_name.ilike("%Watch%")
+        )
         .order_by(Phone.id)
-        .limit(MAX_PHONES)
+        .limit(15)
         .all()
     )
+
     session.close()
 
-    print(f"Found {len(phones)} phones to scrape.")
+    print(f"Found {len(phones)} Samsung smartphones needing specifications.")
 
     for phone in phones:
         try:
             print(f"\nScraping: {phone.model_name} (ID: {phone.id})")
+
             html = fetch_phone_page(phone.source_url)
             specifications = parse_specifications(html)
             prices = parse_prices(specifications)
 
-            save_phone_details(phone.id, phone.source_url, specifications, prices)
-            print(f"Saved {len(specifications)} specs and {len(prices)} prices.")
+            save_phone_details(
+                phone.id,
+                phone.source_url,
+                specifications,
+                prices
+            )
+
+            print(
+                f"Saved {len(specifications)} specs "
+                f"and {len(prices)} prices."
+            )
+
         except Exception as error:
             print(f"Failed to scrape {phone.model_name}: {error}")
 
         time.sleep(3)
 
     print("\nScraping completed!")
-
-
-if __name__ == "__main__":
-    run_specification_scraper()

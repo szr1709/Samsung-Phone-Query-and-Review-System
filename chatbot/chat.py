@@ -253,7 +253,9 @@ def chat(question, on_token=None):
     # Step 4: Select output length based on question type
     question_lower = question.lower()
 
-    if any(word in question_lower for word in [
+    if retrieval_result.get("type") == "phone_comparison" or any(
+    word in question_lower
+    for word in [
         "compare", "comparison", "difference", "vs", "versus"
     ]):
         max_tokens = 1600

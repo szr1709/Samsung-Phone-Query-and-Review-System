@@ -4,3 +4,8 @@ __pycache__/
 .env
 .pytest_cache/
 *.log
+# Generated ChromaDB data
+database/chroma_db/
+
+# Generated project structure dump
+structure.txt
